@@ -1,6 +1,9 @@
 import os
+import asyncio
+from openai.types.responses import ResponseTextDeltaEvent
+
 from dotenv import load_dotenv
-from agents import Agent, Runner, set_default_openai_key
+from agents import Agent, Runner, function_tool, set_default_openai_key
 
 
 # load .env
@@ -13,8 +16,30 @@ if not api_key:
 # set openai key
 set_default_openai_key(api_key)
 
-# sample agent sdk
-agent = Agent(name="Assistant", instructions="You are a helpful assistant")
 
-result = Runner.run_sync(agent, "Write a haiku about recursion in programming.")
-print(result.final_output)
+# sample function tool
+@function_tool
+def get_weather(city: str) -> str:
+    return f"The weather in {city} is sunny. The temperature is 20 degrees Celsius. The humidity is 50%."
+
+# sample agent
+agent = Agent(
+    name="Hello world",
+    instructions="You are a helpful agent.",
+    tools=[get_weather],
+)
+
+# main
+async def main():
+    result = await Runner.run(agent, input="What's the weather in Tokyo?")
+    print(result.final_output)
+
+async def main_stream():
+    result = Runner.run_streamed(agent, input="What's the weather in Tokyo?")
+    async for event in result.stream_events():
+        if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+            print(event.data.delta, end="", flush=True)
+
+
+if __name__ == "__main__":
+    asyncio.run(main_stream())
