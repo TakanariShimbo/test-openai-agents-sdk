@@ -1,9 +1,9 @@
 import os
 import asyncio
-from openai.types.responses import ResponseTextDeltaEvent
 
 from dotenv import load_dotenv
 from agents import Agent, Runner, function_tool, set_default_openai_key
+from openai.types.responses import ResponseTextDeltaEvent
 
 
 # load .env
