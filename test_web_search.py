@@ -21,7 +21,6 @@ agent = Agent(
     tools=[
         WebSearchTool(),
     ],
-    model="gpt-4o",
 )
 # main
 prompt = "最近の大谷翔平のニュースを教えてください。"
