@@ -24,7 +24,7 @@ agent = Agent(
     model="gpt-4o",
 )
 # main
-prompt = "最近のユニオンツールのニュースを教えてください。"
+prompt = "最近の大谷翔平のニュースを教えてください。"
 
 async def main():
     result = await Runner.run(agent, input=prompt)
