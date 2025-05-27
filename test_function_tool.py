@@ -20,17 +20,17 @@ set_default_openai_key(api_key)
 # sample function tool
 @function_tool
 def get_weather(city: str) -> str:
-    return f"The weather in {city} is sunny. The temperature is 20 degrees Celsius. The humidity is 50%."
+    return f"{city}の天気は晴れです。温度は20度です。湿度は50%です。"
 
 # sample agent
 agent = Agent(
-    name="Hello world",
-    instructions="You are a helpful agent.",
+    name="Assistant",
+    instructions="あなたは親切なアシスタントです。",
     tools=[get_weather],
 )
 
 # main
-prompt = "What's the weather in Tokyo?"
+prompt = "東京の天気を教えてください。"
 
 async def main():
     result = await Runner.run(agent, input=prompt)
