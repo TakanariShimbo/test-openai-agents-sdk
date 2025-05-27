@@ -30,12 +30,14 @@ agent = Agent(
 )
 
 # main
+prompt = "What's the weather in Tokyo?"
+
 async def main():
-    result = await Runner.run(agent, input="What's the weather in Tokyo?")
+    result = await Runner.run(agent, input=prompt)
     print(result.final_output)
 
 async def main_stream():
-    result = Runner.run_streamed(agent, input="What's the weather in Tokyo?")
+    result = Runner.run_streamed(agent, input=prompt)
     async for event in result.stream_events():
         if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
             print(event.data.delta, end="", flush=True)
