@@ -26,7 +26,9 @@ def get_weather(city: str) -> str:
 agent = Agent(
     name="Assistant",
     instructions="あなたは親切なアシスタントです。",
-    tools=[get_weather],
+    tools=[
+        get_weather,
+    ],
 )
 
 # main
