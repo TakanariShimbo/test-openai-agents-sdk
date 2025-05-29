@@ -16,12 +16,14 @@ if not api_key:
 # set openai key
 set_default_openai_key(api_key)
 
+# sample agent
 agent = Agent(
     name="Assistant",
     tools=[
         WebSearchTool(),
     ],
 )
+
 # main
 prompt = "最近の大谷翔平のニュースを教えてください。"
 
