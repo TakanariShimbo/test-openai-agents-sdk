@@ -17,48 +17,29 @@ set_default_openai_key(api_key)
 
 
 async def main():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    sample_dir = os.path.join(current_dir, "sample")
-
     async with MCPServerStdio(
-        name="npxを使用したファイルシステムサーバー",
+        name="Playwright MCP Server",
         params={
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-filesystem", sample_dir],
+            "args": ["-y", "@playwright/mcp@latest"],
         },
+        client_session_timeout_seconds=30,
     ) as server:
-        await server.list_tools()
+        # await server.list_tools()
 
         agent = Agent(
             name="Assistant",
-            instructions="ツールを使用してファイルシステムを読み取り、それらのファイルに基づいて質問に答えてください。",
+            instructions="あなたは親切なアシスタントです。",
             mcp_servers=[server],
         )
 
         result = await Runner.run(
-            agent, "「ohtani-san.txt」ファイルの中に何と記載されている？"
+            agent, "明日の東京の天気をPlaywrightを使って調べ、その結果を教えてください。"
         )
         print(result.final_output)
 
-
-async def run_main_with_proper_cleanup():
-    try:
-        await main()
-    finally:
-        # wait to finish the background task
-        await asyncio.sleep(0.1)
-        
-        # if there are remaining tasks, cancel them
-        loop = asyncio.get_running_loop()
-        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done() and task != asyncio.current_task()]
-        
-        if pending_tasks:
-            for task in pending_tasks:
-                task.cancel()
-            
-            # wait for the cancelled tasks to finish
-            await asyncio.gather(*pending_tasks, return_exceptions=True)
-
+    # wait to finish the background task
+    await asyncio.sleep(1)
 
 if __name__ == "__main__":
-    asyncio.run(run_main_with_proper_cleanup())
+    asyncio.run(main())
