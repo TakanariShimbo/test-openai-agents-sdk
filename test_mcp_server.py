@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 from contextlib import AsyncExitStack
+from typing import Any
 
 from agents import Agent, Runner, set_default_openai_key
 from agents.mcp import MCPServerStdio
@@ -20,26 +21,52 @@ set_default_openai_key(api_key)
 # params
 params_json_str = """
 {
-    "playwright": {
-        "command": "npx", 
-        "args": [
-            "-y", 
-            "@playwright/mcp@latest"
-        ]
-    },
-    "filesystem": {
-        "command": "npx",
-        "args": [
-            "-y",
-            "@modelcontextprotocol/server-filesystem",
-            "C:/Users/xxx"
-        ]   
+    "mcpServers": {
+        "playwright": {
+            "command": "npx", 
+            "args": [
+                "-y", 
+                "@playwright/mcp@latest"
+            ]
+        },
+        "filesystem": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                "C:/Users/xxx"
+            ]   
+        }
     }
 }
 """
 
+def parse_mcp_servers_json(json_str: str) -> dict[str, Any]:
+    try:
+        mcp_servers = json.loads(json_str)
+        if not isinstance(mcp_servers, dict):
+            raise AssertionError(f"MCP servers must be a dict.")
+
+        mcp_servers_params = mcp_servers.get("mcpServers", {})
+        if not isinstance(mcp_servers_params, dict):
+            raise AssertionError(f"MCP servers must be a dict.")
+
+        for name, params in mcp_servers_params.items():
+            if not isinstance(name, str):
+                raise AssertionError(f"MCP server 'name' must be a string.")
+            if not isinstance(params, dict):
+                raise AssertionError(f"MCP server 'params' must be a dict.")
+            if params.get("command", None) is None:
+                raise AssertionError(f"MCP server 'command' must be set.")
+            if params.get("args", None) is None:
+                raise AssertionError(f"MCP server 'args' must be set.")
+    except (json.JSONDecodeError, AssertionError) as e:
+        raise ValueError(str(e))
+    
+    return mcp_servers_params
+
 async def main():
-    params_dict = json.loads(params_json_str)
+    params_dict = parse_mcp_servers_json(params_json_str)
 
     # MCP servers
     async with AsyncExitStack() as stack:
