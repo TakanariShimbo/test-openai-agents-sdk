@@ -152,15 +152,25 @@ def _expand_env(obj: Any) -> Any:
     if not isinstance(env_field, dict):
         return expanded_config
     
-    # ステップ3：他のフィールドでenvフィールドの変数を展開
+    # ステップ3：envフィールド内の変数を相互参照で解決
+    # 最大10回まで試行して循環参照を避ける
+    resolved_env = dict(env_field)
+    for _ in range(10):
+        prev_env = dict(resolved_env)
+        resolved_env = _expand_with_env_vars(resolved_env, resolved_env)
+        # 変化がなくなったら終了
+        if resolved_env == prev_env:
+            break
+    
+    # ステップ4：他のフィールドでenvフィールドの変数を展開
     final_config = {}
     for key, value in expanded_config.items():
         if key == 'env':
-            # envフィールドはそのまま保持
-            final_config[key] = value
+            # 解決されたenvフィールドを使用
+            final_config[key] = resolved_env
         else:
-            # 他のフィールドでenv変数を展開
-            final_config[key] = _expand_with_env_vars(value, env_field)
+            # 他のフィールドで解決されたenv変数を展開
+            final_config[key] = _expand_with_env_vars(value, resolved_env)
     
     return final_config
 
