@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from contextlib import AsyncExitStack
 from typing import Any, Literal, Union, Optional
 
@@ -44,15 +45,124 @@ PARAMS_JSON_STR = r"""
 # ──────────────────────────────────────────────
 # Robust parser
 # ──────────────────────────────────────────────
+def _expand_string_variables(text: str, variables: dict[str, str]) -> str:
+    """
+    ${VAR}または$VAR形式の変数を文字列内で展開する
+    
+    Parameters
+    ----------
+    text : str
+        変数を展開する文字列
+    variables : dict[str, str]
+        変数名とその値のマッピング
+        
+    Returns
+    -------
+    str
+        変数が展開された文字列
+    """
+    def replace_var(match):
+        # ${VAR}または$VARから変数名を抽出
+        var_name = match.group(1) or match.group(2)
+        # 変数が見つからない場合は元の文字列を返す
+        return variables.get(var_name, match.group(0))
+    
+    # ${VAR}と$VARパターンにマッチ
+    pattern = r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+    return re.sub(pattern, replace_var, text)
+
+
+def _expand_with_env_vars(obj: Any, env_vars: dict[str, str]) -> Any:
+    """
+    オブジェクト内の環境変数を展開する
+    
+    Parameters
+    ----------
+    obj : Any
+        環境変数を展開するオブジェクト
+    env_vars : dict[str, str]
+        環境変数名と値のマッピング
+        
+    Returns
+    -------
+    Any
+        環境変数が展開されたオブジェクト
+    """
+    if isinstance(obj, str):
+        return _expand_string_variables(obj, env_vars)
+    
+    if isinstance(obj, list):
+        return [_expand_with_env_vars(item, env_vars) for item in obj]
+    
+    if isinstance(obj, dict):
+        return {k: _expand_with_env_vars(v, env_vars) for k, v in obj.items()}
+    
+    return obj
+
+
 def _expand_env(obj: Any) -> Any:
-    """環境変数を展開する"""
+    """
+    MCPサーバー設定内の環境変数を展開する
+    
+    処理順序:
+    1. システム環境変数を展開（${HOME}など）
+    2. envフィールドの変数を他のフィールドで相互参照できるように展開
+    
+    Parameters
+    ----------
+    obj : Any
+        処理する設定オブジェクト
+        
+    Returns
+    -------
+    Any
+        環境変数が展開されたオブジェクト
+        
+    Examples
+    --------
+    >>> config = {
+    ...     'env': {'PROJECT_ROOT': '/home/user/project'},
+    ...     'cwd': '${PROJECT_ROOT}/scripts'
+    ... }
+    >>> result = _expand_env(config)
+    >>> result['cwd']
+    '/home/user/project/scripts'
+    """
+    # 文字列の場合：システム環境変数のみを展開
     if isinstance(obj, str):
         return os.path.expandvars(obj)
+    
+    # リストの場合：各要素を再帰的に処理
     if isinstance(obj, list):
-        return [_expand_env(x) for x in obj]
-    if isinstance(obj, dict):
-        return {k: _expand_env(v) for k, v in obj.items()}
-    return obj
+        return [_expand_env(item) for item in obj]
+    
+    # 辞書以外のオブジェクトの場合：そのまま返す
+    if not isinstance(obj, dict):
+        return obj
+    
+    # === 辞書の処理 ===
+    
+    # ステップ1：全てのフィールドでシステム環境変数を展開
+    expanded_config = {}
+    for key, value in obj.items():
+        expanded_config[key] = _expand_env(value)
+    
+    # ステップ2：envフィールドがない場合、ステップ1の結果を返す
+    env_field = expanded_config.get('env')
+    if not isinstance(env_field, dict):
+        return expanded_config
+    
+    # ステップ3：他のフィールドでenvフィールドの変数を展開
+    final_config = {}
+    for key, value in expanded_config.items():
+        if key == 'env':
+            # envフィールドはそのまま保持
+            final_config[key] = value
+        else:
+            # 他のフィールドでenv変数を展開
+            final_config[key] = _expand_with_env_vars(value, env_field)
+    
+    return final_config
 
 
 def load_json_configuration(json_str: str) -> dict[str, Any]:
