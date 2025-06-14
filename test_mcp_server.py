@@ -3,7 +3,6 @@ import json
 import os
 from contextlib import AsyncExitStack
 from typing import Any, Literal, Union, Optional
-from datetime import timedelta
 
 from agents import Agent, Runner, set_default_openai_key
 from agents.mcp import (
@@ -71,32 +70,34 @@ def validate_mcp_servers_structure(root: Any) -> dict[str, Any]:
     return root["mcpServers"]
 
 
-def validate_server_config(name: Any, cfg: Any) -> dict[str, Any]:
+def validate_server_params(name: Any, params: Any) -> dict[str, Any]:
     """個別のサーバー設定を検証"""
     if not isinstance(name, str):
         raise ValueError("Server names must be strings.")
-    if not isinstance(cfg, dict):
+    if not isinstance(params, dict):
         raise ValueError(f'Server "{name}" must be an object.')
-    return cfg
+    return params
 
 
-def validate_server_type_and_connection(name: str, cfg: dict[str, Any]) -> Optional[str]:
+def validate_server_type_and_connection(name: str, params: dict[str, Any]) -> Optional[str]:
     """サーバータイプと接続設定を検証"""
     http_types = {"sse", "stream", "http", "streamable-http"}
     allowed_types = {"stdio"} | http_types
-    
-    server_type = cfg.get("type")
+
+    server_type = params.get("type")
     
     # stdio（コマンド実行）タイプの検証
-    if "command" in cfg:
-        if not isinstance(cfg.get("args"), list):
+    if "command" in params:
+        # argsは省略可能だが、指定する場合はリストである必要がある
+        args = params.get("args")
+        if args is not None and not isinstance(args, list):
             raise ValueError(f'Server "{name}": "args" must be a list.')
         if server_type and server_type != "stdio":
             raise ValueError(f'Server "{name}": type must be "stdio" or omitted.')
         
     # HTTP/SSEタイプの検証
-    elif "url" in cfg:
-        if not isinstance(cfg["url"], str):
+    elif "url" in params:
+        if not isinstance(params["url"], str):
             raise ValueError(f'Server "{name}": "url" must be a string.')
         if server_type not in http_types:
             raise ValueError(
@@ -116,16 +117,16 @@ def validate_server_type_and_connection(name: str, cfg: dict[str, Any]) -> Optio
     return server_type
 
 
-def validate_optional_fields(name: str, cfg: dict[str, Any]) -> None:
+def validate_optional_fields(name: str, params: dict[str, Any]) -> None:
     """オプションフィールドを検証"""
     # ヘッダーのチェック
-    if "headers" in cfg and not isinstance(cfg["headers"], dict):
+    if "headers" in params and not isinstance(params["headers"], dict):
         raise ValueError(f'Server "{name}": "headers" must be an object.')
     # 環境変数のチェック
-    if "env" in cfg and not isinstance(cfg["env"], dict):
+    if "env" in params and not isinstance(params["env"], dict):
         raise ValueError(f'Server "{name}": "env" must be an object.')
     # 作業ディレクトリのチェック
-    if "cwd" in cfg and cfg.get("cwd") is not None and not isinstance(cfg["cwd"], str):
+    if "cwd" in params and params.get("cwd") is not None and not isinstance(params["cwd"], str):
         raise ValueError(f'Server "{name}": "cwd" must be a string.')
 
 
@@ -135,16 +136,16 @@ def parse_mcp_servers_json(json_str: str) -> dict[str, dict[str, Any]]:
     mcp_servers = validate_mcp_servers_structure(root)
     
     servers: dict[str, dict[str, Any]] = {}
-    for name, cfg in mcp_servers.items():
-        cfg = validate_server_config(name, cfg)
+    for name, params in mcp_servers.items():
+        params = validate_server_params(name, params)
         
-        if cfg.get("enabled", True) is False:
+        if params.get("enabled", True) is False:
             continue
         
-        validate_server_type_and_connection(name, cfg)
-        validate_optional_fields(name, cfg)
+        validate_server_type_and_connection(name, params)
+        validate_optional_fields(name, params)
         
-        servers[name] = _expand_env(cfg)
+        servers[name] = _expand_env(params)
     
     if not servers:
         raise ValueError("No enabled MCP servers found.")
@@ -155,119 +156,94 @@ def parse_mcp_servers_json(json_str: str) -> dict[str, dict[str, Any]]:
 # Server builder (no auto-detection)
 # ──────────────────────────────────────────────
 
-def build_stdio_server(name: str, cfg: dict[str, Any]) -> MCPServerStdio:
+def build_stdio_server(name: str, params: dict[str, Any]) -> MCPServerStdio:
     """Stdioタイプのサーバーを構築"""
     stdio_params: dict[str, Any] = {
-        "command": cfg["command"],
+        "command": params["command"],
     }
-    if cfg.get("args"):
-        stdio_params["args"] = cfg["args"]
-    if cfg.get("env"):
-        stdio_params["env"] = cfg["env"]
-    if cfg.get("cwd"):
-        stdio_params["cwd"] = cfg["cwd"]
+    if params.get("args"):
+        stdio_params["args"] = params["args"]
+    if params.get("env"):
+        stdio_params["env"] = params["env"]
+    if params.get("cwd"):
+        stdio_params["cwd"] = params["cwd"]
     
     return MCPServerStdio(
         name=name,
         params=stdio_params,
-        client_session_timeout_seconds=cfg.get("timeout", 30),
+        client_session_timeout_seconds=params.get("timeout", 30),
     )
 
 
-def build_sse_server(name: str, cfg: dict[str, Any]) -> MCPServerSse:
+def build_sse_server(name: str, params: dict[str, Any]) -> MCPServerSse:
     """SSEタイプのサーバーを構築"""
     http_params: dict[str, Any] = {
-        "url": cfg["url"],
+        "url": params["url"],
     }
-    if cfg.get("headers"):
-        http_params["headers"] = cfg["headers"]
+    if params.get("headers"):
+        http_params["headers"] = params["headers"]
     
     return MCPServerSse(
         name=name,
         params=http_params,
-        client_session_timeout_seconds=cfg.get("timeout", 30),
+        client_session_timeout_seconds=params.get("timeout", 30),
     )
 
 
-def build_streamable_http_server(name: str, cfg: dict[str, Any]) -> MCPServerStreamableHttp:
+def build_streamable_http_server(name: str, params: dict[str, Any]) -> MCPServerStreamableHttp:
     """StreamableHttpタイプのサーバーを構築"""
     http_params: dict[str, Any] = {
-        "url": cfg["url"],
+        "url": params["url"],
     }
-    if cfg.get("headers"):
-        http_params["headers"] = cfg["headers"]
+    if params.get("headers"):
+        http_params["headers"] = params["headers"]
     
     return MCPServerStreamableHttp(
         name=name,
         params=http_params,
-        client_session_timeout_seconds=cfg.get("timeout", 30),
+        client_session_timeout_seconds=params.get("timeout", 30),
     )
 
 
-def build_server(name: str, cfg: dict[str, Any]) -> Union[MCPServerStdio, MCPServerSse, MCPServerStreamableHttp]:
+def build_server(name: str, params: dict[str, Any]) -> Union[MCPServerStdio, MCPServerSse, MCPServerStreamableHttp]:
     """設定に基づいて適切なサーバーを構築"""
-    if "command" in cfg:
-        return build_stdio_server(name, cfg)
+    if "command" in params:
+        return build_stdio_server(name, params)
     
-    server_type: Literal["sse", "stream", "http", "streamable-http"] = cfg["type"]
+    server_type: Literal["sse", "stream", "http", "streamable-http"] = params["type"]
     
     if server_type == "sse":
-        return build_sse_server(name, cfg)
+        return build_sse_server(name, params)
     else:
-        return build_streamable_http_server(name, cfg)
+        return build_streamable_http_server(name, params)
 
 
 # ──────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────
 
-async def initialize_mcp_servers(
-    servers_cfg: dict[str, dict[str, Any]], 
-    stack: AsyncExitStack
-) -> list[Union[MCPServerStdio, MCPServerSse, MCPServerStreamableHttp]]:
-    """MCPサーバーを初期化してリストで返す"""
-    mcp_servers = [
-        await stack.enter_async_context(build_server(name, cfg))
-        for name, cfg in servers_cfg.items()
-    ]
-    
-    # Warm-up servers by listing tools
-    for srv in mcp_servers:
-        await srv.list_tools()
-    
-    return mcp_servers
-
-
-def create_agent(
-    mcp_servers: list[Union[MCPServerStdio, MCPServerSse, MCPServerStreamableHttp]]
-) -> Agent:
-    """エージェントを作成"""
-    return Agent(
-        name="Assistant",
-        instructions="あなたは親切なアシスタントです。",
-        mcp_servers=mcp_servers,
-    )
-
-
-async def execute_agent_task(agent: Agent, task: str) -> str:
-    """エージェントタスクを実行"""
-    result = await Runner.run(agent, task)
-    return result.final_output
-
-
 async def main() -> None:
-    """Main execution function"""
+    """メイン実行関数"""
     setup_environment()
     
-    servers_cfg = parse_mcp_servers_json(PARAMS_JSON_STR)
+    servers_params = parse_mcp_servers_json(PARAMS_JSON_STR)
     
     async with AsyncExitStack() as stack:
-        mcp_servers = await initialize_mcp_servers(servers_cfg, stack)
-        agent = create_agent(mcp_servers)
+        mcp_servers = []
+        for name, params in servers_params.items():
+            mcp_server = build_server(name, params)
+            await stack.enter_async_context(mcp_server)
+            mcp_servers.append(mcp_server)
+
+        agent = Agent(
+            name="Assistant",
+            instructions="あなたは親切なアシスタントです。",
+            mcp_servers=mcp_servers,
+        )
         
         task = "ツールは何がある？"
-        output = await execute_agent_task(agent, task)
-        print(output)
+        result = await Runner.run(agent, task)
+        print(result.final_output)
     
     await asyncio.sleep(1)
 
